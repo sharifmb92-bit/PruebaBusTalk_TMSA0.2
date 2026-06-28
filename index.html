@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>BusTalk TMSA 3.0</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- FIREBASE -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <!-- MANIFEST PWA E ICONOS -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-152.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+
+    <style>
+        [x-cloak] { display: none !important; }
+        
+        body { 
+            background-color: #1a1a1a; 
+            user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+            padding-top: env(safe-area-inset-top);
+        }
+
+        .bg-gray-custom { background-color: #262626; }
+        
+        /* Efectos Botón Radio */
+        .ptt-active { background-color: #ef4444 !important; transform: scale(0.92); box-shadow: 0 0 30px rgba(239, 68, 68, 0.8); }
+        .ptt-receiving { background-color: #10b981 !important; box-shadow: 0 0 40px rgba(16, 185, 129, 0.9); animation: pulse-green 1s infinite; }
+        @keyframes pulse-green { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+
+        /* Luces y Alertas */
+        .luz-parada { box-shadow: 0 0 15px #10b981, inset 0 0 10px #10b981; background-color: #10b981; color: black; }
+        .alerta-lleno { background-color: #ea580c; animation: pulse-alert 2s infinite; border-color: #c2410c; }
+        .alerta-retraso { background-color: #ca8a04; animation: pulse-alert 2s infinite; border-color: #a16207; }
+        .alerta-averia { background-color: #dc2626; animation: pulse-alert 1s infinite; border-color: #991b1b; }
+        @keyframes pulse-alert { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body x-data="busTalkApp()" x-init="init()" class="text-white font-sans h-screen flex flex-col overflow-hidden">
+
+    <!-- MOTOR PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(console.error);
+            });
+        }
+    </script>
+
+    <!-- ALERTA VISUAL RECIBIENDO AUDIO -->
+    <div x-show="estadoRadio === 'recibiendo'" x-transition.opacity class="fixed inset-0 bg-green-500/20 z-[60] pointer-events-none animate-pulse"></div>
+
+    <!-- ========================================== -->
+    <!-- SCREEN 0: LOGIN MULTISESIÓN                -->
+    <!-- ========================================== -->
+    <div x-show="screen === 0" x-transition.opacity x-cloak class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center p-6 backdrop-blur-md">
+        <div class="bg-gray-900 p-8 rounded-[2rem] w-full max-w-sm text-center shadow-2xl border border-gray-800">
+            <div class="text-yellow-500 text-6xl mb-4"><i class="fas fa-bus"></i></div>
+            <h2 class="text-2xl font-black mb-1 text-white uppercase tracking-wider">BusTalk TMSA</h2>
+            <p class="text-gray-400 mb-6 text-xs tracking-widest uppercase">Identificación Obligatoria</p>
+            
+            <!-- BOTÓN GOOGLE -->
+            <button @click="loginGoogle()" class="w-full bg-white hover:bg-gray-200 text-black font-black text-sm py-4 rounded-xl transition-transform active:scale-95 shadow-md flex items-center justify-center gap-3 mb-4">
+                <i class="fab fa-google text-red-500 text-lg"></i> Entrar con Google
+            </button>
+
+            <div class="relative flex py-2 items-center mb-4">
+                <div class="flex-grow border-t border-gray-700"></div>
+                <span class="flex-shrink-0 mx-4 text-gray-500 text-[10px] font-bold tracking-widest uppercase">O con correo</span>
+                <div class="flex-grow border-t border-gray-700"></div>
+            </div>
+
+            <!-- EMAIL Y CONTRASEÑA -->
+            <input type="email" x-model="authEmail" placeholder="Correo electrónico" 
+                   class="w-full p-4 mb-3 rounded-xl bg-gray-800 text-white text-sm font-bold border border-gray-700 focus:border-yellow-500 outline-none transition-colors">
+            
+            <input type="password" x-model="authPass" placeholder="Contraseña" 
+                   class="w-full p-4 mb-4 rounded-xl bg-gray-800 text-white text-sm font-bold border border-gray-700 focus:border-yellow-500 outline-none transition-colors">
+            
+            <div class="flex gap-2 mb-6">
+                <button @click="loginEmail()" class="w-1/2 bg-blue-600 active:bg-blue-700 text-white font-black text-sm py-4 rounded-xl transition-transform active:scale-95">Entrar</button>
+                <button @click="registrarEmail()" class="w-1/2 bg-gray-700 active:bg-gray-600 text-white font-black text-sm py-4 rounded-xl transition-transform active:scale-95">Registrar</button>
+            </div>
+
+            <!-- BOTÓN ANÓNIMO -->
+            <button @click="loginAnon()" class="w-full bg-transparent border border-gray-600 text-gray-400 hover:text-white font-bold text-xs py-3 rounded-xl transition-colors active:scale-95 flex items-center justify-center gap-2">
+                <i class="fas fa-user-secret"></i> Entrar sin cuenta
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- SCREEN 1: SELECCIÓN DE BUS Y LÍNEA         -->
+    <!-- ========================================== -->
+    <div x-show="screen === 1" x-transition.opacity x-cloak class="fixed inset-0 bg-black z-[90] flex flex-col items-center justify-center p-6 backdrop-blur-md">
+        <div class="bg-gray-900 p-8 rounded-[2rem] w-full max-w-sm text-center shadow-2xl border border-gray-800 relative">
+            
+            <!-- Botón Cerrar Sesión desde la configuración -->
+            <button @click="cerrarSesionTotal()" class="absolute top-4 right-4 text-gray-500 hover:text-red-500"><i class="fas fa-sign-out-alt text-xl"></i></button>
+
+            <div class="text-yellow-500 text-5xl mb-6"><i class="fas fa-route"></i></div>
+            <h2 class="text-xl font-black mb-2 text-white uppercase tracking-wider">Tu Ruta de Hoy</h2>
+            <p class="text-gray-400 mb-6 text-sm">Selecciona tu autobús y tu Zona.</p>
+            
+            <input type="number" x-model="miBusInput" placeholder="Nº de Bus (Ej: 56)" 
+                   class="w-full p-5 mb-4 rounded-2xl bg-gray-800 text-white text-center text-2xl font-black border-2 border-gray-700 focus:border-yellow-500 outline-none transition-colors">
+            
+            <select x-model="miLineaInput" class="w-full p-4 mb-6 rounded-2xl bg-gray-800 text-white text-center text-sm font-bold border-2 border-gray-700 focus:border-yellow-500 outline-none appearance-none">
+                <option value="L01 (Maó-Ciu)">Línea 01 (Maó - Ciutadella)</option>
+                <option value="L14 (Exprés)">Línea 14 (Exprés Maó-Ciu)</option>
+                <option value="Zona Maó y Levante">🔵 ZONA MAÓ Y LEVANTE (Castell, S.Lluís...)</option>
+                <option value="Zona Centro y Poniente">🟠 ZONA CENTRO/PONIENTE (Galdana, S.Tomàs...)</option>
+                <option value="Escolar">Rutas Escolares</option>
+                <option value="Discrecional">Discrecional / Otros</option>
+                <option value="General">🌍 CANAL GENERAL (Escuchar a todos)</option>
+            </select>
+
+            <button @click="iniciarTurno()" class="w-full bg-yellow-500 active:bg-yellow-600 text-black font-black text-lg py-5 rounded-2xl transition-transform active:scale-95 shadow-[0_0_20px_rgba(234,179,8,0.3)]">
+                CONECTAR RADIO
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- SCREEN 2: APP PRINCIPAL (RADAR Y RADIO)    -->
+    <!-- ========================================== -->
+    <template x-if="screen === 2">
+        <div class="flex flex-col h-full w-full">
+            
+            <!-- CABECERA -->
+            <header class="p-4 bg-black flex justify-between items-center border-b border-gray-800 z-10 flex-shrink-0">
+                <div class="flex flex-col">
+                    <div class="flex items-center space-x-2">
+                        <span class="bg-yellow-500 text-black font-black px-2 py-1 rounded-md text-sm" x-text="'BUS ' + miBus"></span>
+                        <h1 class="text-lg font-black tracking-tighter italic text-gray-300">Bus<span class="text-yellow-500">Talk</span></h1>
+                    </div>
+                    <span class="text-[10px] font-bold text-sky-400 mt-1 uppercase tracking-widest truncate max-w-[170px]" x-text="miLinea"></span>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <span class="text-[8px] font-mono text-gray-500 border border-gray-700 px-1.5 py-0.5 rounded tracking-[0.2em] opacity-60">medbasha</span>
+                    <div class="flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 rounded-full border border-gray-800">
+                        <span class="w-2 h-2 rounded-full" :class="conectado ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></span>
+                    </div>
+                    <!-- Botón Apagar/Cerrar Turno -->
+                    <button @click="cerrarTurno()" class="w-9 h-9 bg-gray-900 rounded-full flex items-center justify-center text-gray-400 active:text-red-500 transition-colors">
+                        <i class="fas fa-power-off"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- LISTA DE COMPAÑEROS (Radar) -->
+            <main class="flex-1 overflow-y-auto p-3 space-y-3 bg-[#121212] hide-scrollbar pb-6">
+                <div class="flex justify-between items-end mb-2 px-2 mt-2">
+                    <p class="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Radar de Zona</p>
+                    <p class="text-[10px] text-gray-600 font-bold" x-text="compañeros.length + ' activos'"></p>
+                </div>
+                
+                <template x-if="compañeros.length === 0">
+                    <div class="text-center py-10 opacity-30">
+                        <i class="fas fa-satellite-dish text-6xl mb-4"></i>
+                        <p class="font-bold text-sm uppercase tracking-widest">Zona despejada</p>
+                    </div>
+                </template>
+
+                <template x-for="comp in compañeros" :key="comp.id">
+                    <div class="p-4 rounded-2xl border-l-4 flex justify-between items-center shadow-lg transition-colors"
+                         :class="[
+                            comp.alerta === 'AVERÍA' ? 'alerta-averia' : 
+                            comp.alerta === 'LLENO' ? 'alerta-lleno' : 
+                            comp.alerta === 'RETRASO' ? 'alerta-retraso' : 
+                            (comp.id === elQueHabla ? 'border-green-500 bg-green-900/40' : (comp.enParada ? 'border-green-500 bg-gray-800' : 'border-blue-500 bg-gray-800'))
+                         ]">
+                        
+                        <div class="flex-1 overflow-hidden">
+                            <div class="flex items-center gap-2 mb-1">
+                                <p class="font-black text-2xl text-white" x-text="'Bus ' + comp.id"></p> 
+                                <i x-show="comp.id === elQueHabla" class="fas fa-volume-up text-green-400 animate-pulse text-xl ml-2"></i>
+                                <span x-show="comp.alerta" class="px-2 py-0.5 bg-black/50 text-white rounded text-[11px] font-black uppercase tracking-widest border border-white/20">
+                                    <i class="fas fa-exclamation-triangle text-yellow-400 mr-1"></i> <span x-text="comp.alerta"></span>
+                                </span>
+                            </div>
+
+                            <div class="flex items-center gap-2 mt-2">
+                                <span class="text-sm font-black uppercase tracking-wider px-2 py-0.5 rounded-md flex items-center gap-1 whitespace-nowrap truncate"
+                                      :class="comp.enParada ? 'luz-parada' : 'bg-blue-500/20 text-blue-100'">
+                                    <i class="fas" :class="comp.enParada ? 'fa-parking' : 'fa-route'"></i>
+                                    <span x-text="comp.ubicacion"></span>
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div class="text-right bg-black/40 px-5 py-2 rounded-xl border border-white/10 ml-2 flex-shrink-0">
+                            <p class="text-[9px] uppercase tracking-widest text-gray-300 font-bold mb-0.5">Pax</p>
+                            <span class="text-3xl font-black" :class="comp.pax > 40 ? 'text-red-400' : 'text-yellow-400'" x-text="comp.pax"></span>
+                        </div>
+                    </div>
+                </template>
+            </main>
+
+            <!-- PANEL DE CONTROL DEL CONDUCTOR -->
+            <footer class="p-4 bg-black rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)] border-t border-gray-800 flex-shrink-0 relative z-20">
+                <div class="flex flex-col items-center max-w-md mx-auto">
+                    
+                    <div class="w-full flex justify-between gap-2 mb-4">
+                        <button @click="actualizarUbicacion('Ciu')" class="flex-1 bg-gray-800 py-3 rounded-xl text-xs font-bold uppercase border border-gray-700 active:bg-blue-600 transition-colors" :class="miUbicacion === 'Ciu' ? 'bg-blue-600 text-white' : 'text-gray-400'">Ciu</button>
+                        <button @click="actualizarUbicacion('Ferreries')" class="flex-1 bg-gray-800 py-3 rounded-xl text-xs font-bold uppercase border border-gray-700 active:bg-blue-600 transition-colors" :class="miUbicacion === 'Ferreries' ? 'bg-blue-600 text-white' : 'text-gray-400'">Ferr</button>
+                        <button @click="actualizarUbicacion('Alaior')" class="flex-1 bg-gray-800 py-3 rounded-xl text-xs font-bold uppercase border border-gray-700 active:bg-blue-600 transition-colors" :class="miUbicacion === 'Alaior' ? 'bg-blue-600 text-white' : 'text-gray-400'">Alaior</button>
+                        <button @click="actualizarUbicacion('Maó')" class="flex-1 bg-gray-800 py-3 rounded-xl text-xs font-bold uppercase border border-gray-700 active:bg-blue-600 transition-colors" :class="miUbicacion === 'Maó' ? 'bg-blue-600 text-white' : 'text-gray-400'">Maó</button>
+                    </div>
+
+                    <div class="w-full flex gap-3 mb-6">
+                        <div class="flex-1 bg-gray-900 rounded-2xl border border-gray-800 p-2 flex flex-col justify-center">
+                            <button @click="toggleParada()" class="w-full py-3 rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                                    :class="enParada ? 'luz-parada' : 'bg-gray-800 text-gray-400'">
+                                <i class="fas" :class="enParada ? 'fa-parking' : 'fa-play'"></i>
+                                <span x-text="enParada ? 'EN PARADA' : 'SALIR / RUTA'"></span>
+                            </button>
+                        </div>
+
+                        <div class="flex-1 bg-gray-900 p-2 rounded-2xl border border-gray-800 flex items-center justify-between">
+                            <button @click="cambiarPasajeros(-1)" class="w-12 h-12 rounded-xl bg-gray-800 text-3xl flex items-center justify-center active:bg-red-500 transition-colors text-white shadow-md">-</button>
+                            <div class="text-center flex-1">
+                                <p class="text-[9px] uppercase text-gray-500 font-black tracking-widest">PAX</p>
+                                <p class="text-3xl font-black text-yellow-500 leading-none" x-text="miPax"></p>
+                            </div>
+                            <button @click="cambiarPasajeros(1)" class="w-12 h-12 rounded-xl bg-gray-800 text-3xl flex items-center justify-center active:bg-green-500 transition-colors text-white shadow-md">+</button>
+                        </div>
+                    </div>
+
+                    <div class="relative flex items-center justify-center w-full pb-2">
+                        <button id="btn-ptt"
+                            @mousedown="empezarGrabar()" @mouseup="pararGrabar()" @mouseleave="pararGrabarSiSale()"
+                            @touchstart.prevent="empezarGrabar()" @touchend.prevent="pararGrabar()"
+                            class="w-32 h-32 rounded-full bg-yellow-500 flex flex-col items-center justify-center shadow-[0_0_30px_rgba(234,179,8,0.2)] transition-all duration-150"
+                            :class="{ 'ptt-active': estadoRadio === 'grabando', 'ptt-receiving': estadoRadio === 'recibiendo' }">
+                            
+                            <i class="fas text-4xl mb-1 text-black" :class="estadoRadio === 'recibiendo' ? 'fa-volume-up' : 'fa-microphone'"></i>
+                            <span class="text-black font-black text-[11px] tracking-widest" x-text="estadoRadio === 'grabando' ? 'HABLANDO' : (estadoRadio === 'recibiendo' ? 'ESCUCHANDO' : 'MANTÉN PULSADO')"></span>
+                        </button>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </template>
+
+    <script>
+        // --- TUS CLAVES NUEVAS DE BUSTALKTMSA ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyC7b6_T0ze2HgXiYHfvUeL12JSXE7ZKogc",
+            authDomain: "misturnos-fe3ea.firebaseapp.com",
+            databaseURL: "https://misturnos-fe3ea-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "misturnos-fe3ea",
+            storageBucket: "misturnos-fe3ea.firebasestorage.app",
+            messagingSenderId: "1029095925443",
+            appId: "1:1029095925443:web:fd03fb429263be52392476",
+            measurementId: "G-2SY1ENPWCJ"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        function busTalkApp() {
+            return {
+                screen: 0, // 0 = Auth, 1 = Config Bus, 2 = App Principal
+                authEmail: '', authPass: '', user: null,
+                
+                conectado: false, wakeLockStatus: null,
+                miBusInput: '', miLineaInput: 'L01 (Maó-Ciu)', 
+                miBus: '', miLinea: '', miPax: 0, miUbicacion: 'Ciu',
+                enParada: true, miAlerta: null,
+                compañeros:[],
+                
+                estadoRadio: 'reposo', elQueHabla: null,
+                mediaRecorder: null, chunks:[], streamingMsgId: null,
+                relojUI: null,
+
+                init() {
+                    // Escuchador de Autenticación de Firebase
+                    auth.onAuthStateChanged((user) => {
+                        if (user) {
+                            this.user = user;
+                            this.screen = 1; // Pasamos a la pantalla de elegir Bus
+                            
+                            // Si ya tenía el bus guardado, entra directo a la App
+                            const busGuardado = localStorage.getItem('bustalk_bus');
+                            const lineaGuardada = localStorage.getItem('bustalk_linea');
+                            if (busGuardado && lineaGuardada) {
+                                this.miBusInput = busGuardado;
+                                this.miLineaInput = lineaGuardada;
+                                this.iniciarTurno(); 
+                            }
+                        } else {
+                            this.user = null;
+                            this.screen = 0; // Pantalla de Login
+                        }
+                    });
+
+                    this.relojUI = setInterval(() => { 
+                        if(this.screen === 2) this.compañeros = [...this.compañeros]; 
+                    }, 10000);
+                },
+
+                // ==========================================
+                // FUNCIONES DE AUTENTICACIÓN MULTISESIÓN
+                // ==========================================
+                loginGoogle() {
+                    const provider = new firebase.auth.GoogleAuthProvider();
+                    auth.signInWithPopup(provider).catch(err => alert("Error al entrar con Google: " + err.message));
+                },
+                
+                loginEmail() {
+                    if(!this.authEmail || !this.authPass) return alert("Por favor, rellena el correo y la contraseña.");
+                    auth.signInWithEmailAndPassword(this.authEmail, this.authPass)
+                        .catch(err => alert("Error de correo: " + err.message));
+                },
+                
+                registrarEmail() {
+                    if(!this.authEmail || !this.authPass) return alert("Por favor, rellena el correo y la contraseña para registrarte.");
+                    auth.createUserWithEmailAndPassword(this.authEmail, this.authPass)
+                        .then(() => alert("Cuenta creada con éxito. Ya puedes entrar."))
+                        .catch(err => alert("Error al registrar: " + err.message));
+                },
+                
+                loginAnon() {
+                    auth.signInAnonymously().catch(err => alert("Error en modo anónimo: " + err.message));
+                },
+
+                cerrarSesionTotal() {
+                    if(confirm("¿Cerrar sesión completamente en este dispositivo?")) {
+                        auth.signOut().then(() => {
+                            localStorage.removeItem('bustalk_bus');
+                            localStorage.removeItem('bustalk_linea');
+                            this.screen = 0;
+                            location.reload();
+                        });
+                    }
+                },
+
+                // ==========================================
+                // APP PRINCIPAL
+                // ==========================================
+                async mantenerPantallaDespierta() {
+                    if ('wakeLock' in navigator) {
+                        try { this.wakeLockStatus = await navigator.wakeLock.request('screen'); } catch (err) {}
+                    }
+                },
+
+                iniciarTurno() {
+                    if (!this.miBusInput || this.miBusInput <= 0) { alert("Pon tu número de bus."); return; }
+                    this.miBus = this.miBusInput.toString();
+                    this.miLinea = this.miLineaInput;
+                    
+                    localStorage.setItem('bustalk_bus', this.miBus);
+                    localStorage.setItem('bustalk_linea', this.miLinea);
+                    
+                    this.screen = 2; // ENTRAMOS A LA APP
+                    this.conectado = true;
+
+                    this.mantenerPantallaDespierta();
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.visibilityState === 'visible') this.mantenerPantallaDespierta();
+                    });
+
+                    this.actualizarMiEstadoBD();
+
+                    // RADAR DE COMPAÑEROS
+                    db.collection("bustalk_buses").onSnapshot(snap => {
+                        const lista =[];
+                        snap.forEach(doc => {
+                            const data = doc.data();
+                            if(doc.id !== this.miBus && (this.miLinea === 'General' || data.linea === this.miLinea || data.linea === 'General')) {
+                                if(data.timestamp > Date.now() - (12 * 60 * 60 * 1000)) {
+                                    lista.push({ id: doc.id, ...data });
+                                }
+                            }
+                        });
+                        this.compañeros = lista.sort((a,b) => b.pax - a.pax);
+                    });
+
+                    // RADIO WALKI-TALKIE
+                    db.collection("bustalk_radio").orderBy("timestamp", "desc").limit(1)
+                        .onSnapshot(snap => {
+                            if(snap.empty) return;
+                            const msg = snap.docs[0].data();
+                            const msgId = snap.docs[0].id;
+                            
+                            if (msg.bus !== this.miBus && this.streamingMsgId !== msgId && (this.miLinea === 'General' || msg.linea === this.miLinea || msg.linea === 'General')) {
+                                this.streamingMsgId = msgId;
+                                this.reproducirMensaje(msg.audioBase64, msg.bus);
+                            }
+                        });
+                        
+                    navigator.mediaDevices.getUserMedia({ audio: true }).catch(e => console.log("Mic no autorizado aún"));
+                },
+
+                cerrarTurno() {
+                    if(confirm("¿Apagar la radio y salir de tu turno de conducción?")) {
+                        db.collection("bustalk_buses").doc(this.miBus).delete();
+                        localStorage.removeItem('bustalk_bus');
+                        localStorage.removeItem('bustalk_linea');
+                        this.screen = 1; // Vuelve a la selección de Bus
+                    }
+                },
+
+                cambiarPasajeros(valor) {
+                    this.miPax = Math.max(0, this.miPax + valor);
+                    this.actualizarMiEstadoBD();
+                },
+
+                actualizarUbicacion(lugar) {
+                    this.miUbicacion = lugar;
+                    this.enParada = true;
+                    this.actualizarMiEstadoBD();
+                    if ("vibrate" in navigator) navigator.vibrate(50);
+                },
+
+                toggleParada() {
+                    this.enParada = !this.enParada;
+                    this.actualizarMiEstadoBD();
+                    if ("vibrate" in navigator) navigator.vibrate(50);
+                },
+
+                toggleAlerta(tipo) {
+                    if (this.miAlerta === tipo) this.miAlerta = null; 
+                    else this.miAlerta = tipo; 
+                    this.actualizarMiEstadoBD();
+                },
+
+                actualizarMiEstadoBD() {
+                    if(!this.conectado) return;
+                    db.collection("bustalk_buses").doc(this.miBus).set({
+                        linea: this.miLinea,
+                        pax: this.miPax,
+                        ubicacion: this.miUbicacion,
+                        enParada: this.enParada,
+                        alerta: this.miAlerta,
+                        timestamp: Date.now()
+                    });
+                },
+
+                // GRABADORA
+                empezarGrabar() {
+                    if (this.estadoRadio !== 'reposo') return; 
+                    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                        this.estadoRadio = 'grabando';
+                        if ("vibrate" in navigator) navigator.vibrate(100); 
+
+                        this.chunks =[];
+                        this.mediaRecorder = new MediaRecorder(stream);
+                        this.mediaRecorder.ondataavailable = e => { this.chunks.push(e.data); };
+
+                        this.mediaRecorder.onstop = async () => {
+                            const audioBlob = new Blob(this.chunks, { type: 'audio/webm' });
+                            const base64Audio = await this.blobToBase64(audioBlob);
+
+                            db.collection("bustalk_radio").add({
+                                bus: this.miBus,
+                                linea: this.miLinea,
+                                audioBase64: base64Audio,
+                                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                            stream.getTracks().forEach(track => track.stop());
+                        };
+                        this.mediaRecorder.start();
+                    }).catch(err => { alert("Activa los permisos de micrófono para hablar."); });
+                },
+
+                pararGrabar() {
+                    if (this.estadoRadio === 'grabando' && this.mediaRecorder) {
+                        this.mediaRecorder.stop();
+                        this.estadoRadio = 'reposo';
+                    }
+                },
+
+                pararGrabarSiSale() { this.pararGrabar(); },
+
+                reproducirMensaje(base64, busSender) {
+                    this.estadoRadio = 'recibiendo';
+                    this.elQueHabla = busSender;
+                    if ("vibrate" in navigator) navigator.vibrate([100, 100, 100]); 
+                    
+                    const audio = new Audio(base64);
+                    audio.play().catch(e => console.log("Bloqueado por el navegador"));
+                    audio.onended = () => { this.estadoRadio = 'reposo'; this.elQueHabla = null; };
+                },
+
+                blobToBase64(blob) {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(blob);
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.onerror = reject;
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>
